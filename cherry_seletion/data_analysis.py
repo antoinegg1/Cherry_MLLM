@@ -11,13 +11,14 @@ log_softmax = nn.LogSoftmax(dim=-1)
 nll_loss = nn.NLLLoss(reduction='none')
 # CUDA_VISIBLE_DEVICES = 1,2,3,4,5,6,7
 '''
-CUDA_VISIBLE_DEVICES=1,2,3,4,5,6,7 python /mnt/file2/changye/Cherry_MLLM/cherry_seletion/data_analysis.py \
+CUDA_VISIBLE_DEVICES=6,7 python /mnt/file2/changye/Cherry_MLLM/cherry_seletion/data_analysis.py \
     --data_path /mnt/file2/changye/dataset/Align-Anything_preference/text-image-to-text/train \
-    --save_path /mnt/file2/changye/dataset/Align-Anything_preference_pre \
-    --model_name_or_path /mnt/file2/changye/model/llava \
+    --save_path /mnt/file2/changye/dataset/Align-Anything_preference_cherry_25601_38402 \
+    --model_name_or_path /mnt/file2/changye/model/htlou/mm-interp-AA_preference_Cherry_pre_sample-llava-mistral \
     --max_length 4096 \
     --prompt alpaca \
-    --mod pre
+    --start_idx 25601 \
+    --mod cherry
 '''
 
 
@@ -54,7 +55,7 @@ def parse_args():
 
 # Used to get the ppl and emb for the whole input
 def get_perplexity_and_embedding_whole_text(processor, model, text,image_i, max_length):
-    inputs=processor( image_i,text, return_tensors="pt", truncation=True, max_length=max_length).to(device)
+    inputs=processor(image_i,text, return_tensors="pt", truncation=True, max_length=max_length).to(device)
 
     with torch.no_grad(): 
         outputs = model(
@@ -78,7 +79,9 @@ def get_perplexity_and_embedding_part_text(processor, model, text, target_span, 
     if image is None:
         inputs=processor(text=text, return_tensors="pt", truncation=True, max_length=max_length).to(device)
     else:
-        inputs=processor(image,text, return_tensors="pt", truncation=True, max_length=max_length).to(device)
+        # breakpoint()
+        
+        inputs=processor(image,text=text, return_tensors="pt", truncation=True, max_length=max_length).to(device)
     input_ids=inputs['input_ids']
     start_index = text.rfind(target_span)
     start_token = len(processor.tokenizer.encode(text[:start_index]))
@@ -88,13 +91,21 @@ def get_perplexity_and_embedding_part_text(processor, model, text, target_span, 
     labels[0, :start_token] = -100
 
     with torch.no_grad():
-        outputs = model(
-            input_ids=input_ids,
-            attention_mask=inputs['attention_mask'],
-            pixel_values=inputs['pixel_values'],
-            image_sizes=inputs['image_sizes'],
-            labels=labels
-            )
+        # breakpoint()
+        if image is None:
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=inputs['attention_mask'],
+                labels=labels
+                )
+        else:
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=inputs['attention_mask'],
+                pixel_values=inputs['pixel_values'],
+                image_sizes=inputs['image_sizes'],
+                labels=labels
+                )
 
     loss = outputs.loss
     perplexity = torch.exp(loss)
@@ -116,7 +127,7 @@ def main():
     print(args)
 
     model = LlavaNextForConditionalGeneration.from_pretrained(args.model_name_or_path, device_map="auto", cache_dir='../cache')
-    processor = LlavaNextProcessor.from_pretrained(args.model_name_or_path, cache_dir='../cache')
+    processor = LlavaNextProcessor.from_pretrained(args.model_name_or_path, cache_dir='../cache',patch_size=14)
 
     model.eval()
 
@@ -175,7 +186,7 @@ def main():
             # instruct_i_input_ids =inputs['input_ids']
             # instruct_i_len = instruct_i_input_ids.shape[1]
         
-            ppl_out_alone, _, loss_list_alone = get_perplexity_and_embedding_part_text(processor, model, direct_answer_text, output_i, args.max_length//2)
+            ppl_out_alone, _, loss_list_alone = get_perplexity_and_embedding_part_text(processor, model, direct_answer_text, output_i, args.max_length//2,image=None)
             ppl_out_condition, _, loss_list_condition = get_perplexity_and_embedding_part_text(processor, model, whole_text, output_i, args.max_length,image=image_i)
 
             temp_data_i['ppl'] = [0,ppl_out_alone,ppl_out_condition]
